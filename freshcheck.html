@@ -69,6 +69,9 @@
   .status { color: var(--muted); font-size: .88rem; min-height: 1.3em; }
   .msg { display: none; margin: 8px 0; padding: 12px 14px; border-radius: 12px; background: var(--red-bg); color: var(--ink); }
   .msg.show { display: block; }
+  .fruitpick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+  .fruitpick button { min-height: 42px; padding: 6px 14px; }
+  .fruitpick button.on { background: var(--brand); color: #fff; box-shadow: none; }
   .whole { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
 
   h2 { font-size: 1.08rem; margin: 18px 0 8px; }
@@ -132,6 +135,14 @@
     <button id="uploadBtn" disabled data-i18n="upload">🖼 Upload photo</button>
     <button id="snapBtn" class="wide" disabled data-i18n="snap">📸 Snapshot</button>
     <input type="file" id="fileInput" accept="image/*" class="hidden">
+  </div>
+  <div class="fruitpick" id="fruitPick">
+    <b data-i18n="fruitLabel">Fruit:</b>
+    <button class="on" data-lock="" data-i18n="auto">Auto</button>
+    <button data-lock="apple">🍎</button>
+    <button data-lock="banana">🍌</button>
+    <button data-lock="orange">🍊</button>
+    <span class="empty" data-i18n="fruitHint">Wrong fruit name? Pick the fruit you are scanning.</span>
   </div>
   <div class="status" id="status"></div>
   <div class="msg" id="msg"></div>
@@ -205,6 +216,8 @@ const COCO_BASE = "lite_mobilenet_v2";  // ~18 MB first download, fast. "mobilen
 const SLOW_LOAD_HINT_S = 25;             // show the "still loading" hint after this many seconds
 const DETECT_MIN_SCORE = 0.5;            // keep detections above this score
 const FRUIT_CLASSES = ["apple", "banana", "orange"];
+// When the user picks a fruit (Fruit: 🍎/🍌/🍊), round objects the detector often calls these are accepted too.
+const EXTRA_CLASSES_WHEN_PICKED = ["sports ball"];
 const DETECT_EVERY_MS = 500;             // run detection about every 500 ms
 const SMOOTH_FRAMES = 3;                 // average freshness over the last 3 frames
 
@@ -252,6 +265,7 @@ const T = {
     disclaimer: "Decision support only, not a food-safety certificate. When in doubt, throw it out.",
     protoNote: "Shelf-life is a prototype estimate.",
     wholeAsk: "No fruit box found. Grade the whole photo as:",
+    fruitLabel: "Fruit:", auto: "Auto", fruitHint: "Wrong fruit name? Pick the fruit you are scanning.",
     noResult: "Nothing scanned yet.",
     noFruitLive: "No apple, banana or orange seen. Hold the fruit 30-60 cm from the camera in good light.",
     apple: "Apple", banana: "Banana", orange: "Orange",
@@ -297,6 +311,7 @@ const T = {
     disclaimer: "यह केवल निर्णय में मदद है, खाद्य-सुरक्षा प्रमाणपत्र नहीं। शक हो तो फेंक दें।",
     protoNote: "शेल्फ़-लाइफ़ एक प्रोटोटाइप अनुमान है।",
     wholeAsk: "फल का बॉक्स नहीं मिला। पूरी फ़ोटो को इस फल के रूप में जाँचें:",
+    fruitLabel: "फल:", auto: "अपने-आप", fruitHint: "फल का नाम गलत है? जो फल स्कैन कर रहे हैं उसे चुनें।",
     noResult: "अभी कुछ स्कैन नहीं हुआ।",
     noFruitLive: "सेब, केला या संतरा नहीं दिखा। फल को अच्छी रोशनी में कैमरे से 30-60 सेमी दूर रखें।",
     apple: "सेब", banana: "केला", orange: "संतरा",
@@ -340,6 +355,7 @@ const FRUIT_ICON = { apple: "🍎", banana: "🍌", orange: "🍊" };
 let lang = "en", mode = "vendor";
 let cocoModel = null, tmModel = null;  // loaded models (tmModel null = heuristic mode)
 let stream = null, facing = "environment", loopTimer = null, running = false;
+let fruitLock = "";                    // "" = Auto (detector decides), else "apple" / "banana" / "orange"
 let photo = null;                      // uploaded photo (HTMLImageElement) when not using the camera
 let tracks = [], nextTrackId = 1;      // fruit tracked across frames (for smoothing)
 let current = [];                      // fruits in the latest scan (graded)
@@ -538,11 +554,13 @@ function smooth(dets) {
 // Runs COCO-SSD + freshness on a video frame or photo; updates `current`.
 async function scan(source, useSmoothing) {
   const preds = await cocoModel.detect(source, 20, DETECT_MIN_SCORE);
-  const fruits = preds.filter(p => FRUIT_CLASSES.includes(p.class) && p.score > DETECT_MIN_SCORE);
+  const allowed = fruitLock ? FRUIT_CLASSES.concat(EXTRA_CLASSES_WHEN_PICKED) : FRUIT_CLASSES;
+  const fruits = preds.filter(p => allowed.includes(p.class) && p.score > DETECT_MIN_SCORE);
   const dets = [];
   for (const f of fruits) {
-    const fr = await freshness(source, f.bbox, f.class);
-    dets.push({ name: f.class, box: f.bbox, score: f.score, ...fr });
+    const name = fruitLock || f.class;              // the picked fruit overrides the detector's label
+    const fr = await freshness(source, f.bbox, name);
+    dets.push({ name, box: f.bbox, score: f.score, ...fr });
   }
   const list = useSmoothing ? smooth(dets) : dets;
   current = list.map(d => ({ ...d, ...grade(d.p_rotten) }));
@@ -820,6 +838,17 @@ function applyLang() {
   if (!$("loading").classList.contains("hidden") && !$("spinner").classList.contains("hidden")) showStep();
 }
 $("langBtn").onclick = () => { lang = lang === "en" ? "hi" : "en"; applyLang(); };
+
+// Fruit picker: Auto or force one fruit name (re-scans an uploaded photo straight away).
+document.querySelectorAll("[data-lock]").forEach(b => b.onclick = async () => {
+  fruitLock = b.dataset.lock;
+  document.querySelectorAll("[data-lock]").forEach(x => x.classList.toggle("on", x === b));
+  tracks = [];                                         // forget smoothed labels from before
+  if (photo && !running && cocoModel) {
+    await scan(photo, false); draw(); renderCards();
+    $("wholeBox").classList.toggle("hidden", current.length > 0);
+  }
+});
 
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   mode = b.dataset.mode;
