@@ -120,7 +120,9 @@
     <canvas id="overlay" class="hidden"></canvas>
     <div class="badge hidden" id="fpsBadge"><i></i><span id="fpsText">LIVE</span></div>
     <div class="mode-badge hidden" id="modeBadge"></div>
-    <div class="loading" id="loading"><div class="spinner"></div><div data-i18n="loadingModels">Loading AI models…</div></div>
+    <div class="loading" id="loading"><div class="spinner" id="spinner"></div><div id="loadingText">Loading AI models…</div>
+      <div id="loadingHint" class="hidden" style="font-size:.85rem;color:#ffe082;max-width:440px"></div>
+      <button id="retryBtn" class="small hidden">↻ Retry</button></div>
   </div>
 
   <div class="controls">
@@ -199,7 +201,8 @@
 const TM_MODEL_URL = "";
 
 // Detection (COCO-SSD)
-const COCO_BASE = "mobilenet_v2";       // "lite_mobilenet_v2" = faster, "mobilenet_v2" = more accurate
+const COCO_BASE = "lite_mobilenet_v2";  // ~18 MB first download, fast. "mobilenet_v2" = more accurate but ~67 MB
+const SLOW_LOAD_HINT_S = 25;             // show the "still loading" hint after this many seconds
 const DETECT_MIN_SCORE = 0.5;            // keep detections above this score
 const FRUIT_CLASSES = ["apple", "banana", "orange"];
 const DETECT_EVERY_MS = 500;             // run detection about every 500 ms
@@ -266,6 +269,11 @@ const T = {
     distNow: "✅ Distribute now", distToday: "🟡 Distribute today", reject: "🔴 Reject", total: "Total",
     logged: n => `Logged ${n} fruit.`, nothingToLog: "No fruit in the current scan to log.",
     errLibs: "Could not load the AI libraries. Check your internet connection and reload the page.",
+    stepTf: "Starting TensorFlow.js…", stepCoco: (a, b) => b ? `Downloading the detection model: part ${a} of ${b} (first time only)…` : "Downloading the detection model (first time only)…",
+    stepWarm: "Warming up the model…", stepTm: "Loading your Teachable Machine model…",
+    slowHint: s => `Still loading after ${s} s. The first load downloads about 18 MB, so a slow connection takes longer; later loads are fast.`,
+    safariTip: "Tip: this works best in Google Chrome. Right-click the file → Open With → Google Chrome.",
+    loadFailed: "Loading failed: ",
     errModel: "Could not load the detection model. Check your internet connection and reload.",
     errTm: "Teachable Machine model did not load (check TM_MODEL_URL). Using the colour heuristic instead.",
     errInsecure: "The camera is blocked on this page. Open the file in Google Chrome, or use Upload photo.",
@@ -306,6 +314,11 @@ const T = {
     distNow: "✅ अभी बाँटें", distToday: "🟡 आज ही बाँटें", reject: "🔴 अस्वीकार", total: "कुल",
     logged: n => `${n} फल दर्ज किए।`, nothingToLog: "इस स्कैन में दर्ज करने को कोई फल नहीं।",
     errLibs: "AI लाइब्रेरी लोड नहीं हुई। इंटरनेट कनेक्शन जाँचें और पेज फिर से खोलें।",
+    stepTf: "TensorFlow.js शुरू हो रहा है…", stepCoco: (a, b) => b ? `डिटेक्शन मॉडल डाउनलोड हो रहा है: भाग ${a} / ${b} (सिर्फ़ पहली बार)…` : "डिटेक्शन मॉडल डाउनलोड हो रहा है (सिर्फ़ पहली बार)…",
+    stepWarm: "मॉडल तैयार हो रहा है…", stepTm: "आपका Teachable Machine मॉडल लोड हो रहा है…",
+    slowHint: s => `${s} सेकंड से लोड हो रहा है। पहली बार लगभग 18 MB डाउनलोड होता है, धीमे इंटरनेट पर समय लगता है; बाद में जल्दी खुलेगा।`,
+    safariTip: "सुझाव: यह Google Chrome में सबसे अच्छा चलता है। फ़ाइल पर राइट-क्लिक → Open With → Google Chrome।",
+    loadFailed: "लोड नहीं हुआ: ",
     errModel: "डिटेक्शन मॉडल लोड नहीं हुआ। इंटरनेट जाँचें और पेज फिर से खोलें।",
     errTm: "Teachable Machine मॉडल लोड नहीं हुआ (TM_MODEL_URL जाँचें)। रंग अनुमान इस्तेमाल हो रहा है।",
     errInsecure: "इस पेज पर कैमरा बंद है। फ़ाइल Google Chrome में खोलें, या फ़ोटो अपलोड करें।",
@@ -343,20 +356,67 @@ smallCanvas.width = smallCanvas.height = 64;
 const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
 const smallCtx = smallCanvas.getContext("2d", { willReadFrequently: true });
 
+const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|OPR/.test(navigator.userAgent);
 const t = k => T[lang][k];
 const fruitName = n => t(n) || n;
 
 // =====================================================================
 //  MODEL LOADING
 // =====================================================================
-async function loadModels() {
-  if (!window.tf || !window.cocoSsd) { showError(t("errLibs")); $("loading").classList.add("hidden"); return; }
-  try {
-    cocoModel = await cocoSsd.load({ base: COCO_BASE });
-  } catch (e) {
-    console.error(e); showError(t("errModel")); $("loading").classList.add("hidden"); return;
+// Counts downloaded model files so the loading screen can show progress.
+let modelParts = 0, modelPartsDone = 0, loadStep = "stepTf", loadStart = 0, slowTimer = null;
+const realFetch = window.fetch.bind(window);
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  const res = await realFetch(input, init);
+  if (/tfjs-models/.test(url)) {
+    if (/model\.json/.test(url)) {
+      res.clone().json().then(j => { modelParts = (j.weightsManifest || []).reduce((n, m) => n + m.paths.length, 0); showStep(); }).catch(() => {});
+    } else { modelPartsDone++; showStep(); }
   }
+  return res;
+};
+
+function showStep(step) {
+  if (step) loadStep = step;
+  const v = t(loadStep);
+  $("loadingText").textContent = typeof v === "function" ? v(Math.min(modelPartsDone + 1, modelParts), modelParts) : v;
+}
+
+function loadFailed(e) {
+  console.error(e);
+  clearInterval(slowTimer);
+  $("spinner").classList.add("hidden");
+  $("loadingText").textContent = t("loadFailed") + (e && e.message ? e.message : e);
+  $("loadingHint").textContent = t("errModel");
+  $("loadingHint").classList.remove("hidden");
+  $("retryBtn").classList.remove("hidden");
+}
+$("retryBtn").onclick = () => location.reload();
+
+async function loadModels() {
+  if (!window.tf || !window.cocoSsd) { loadFailed(new Error(t("errLibs"))); return; }
+  loadStart = performance.now();
+  slowTimer = setInterval(() => {                    // "still loading" hint for slow connections
+    const sec = Math.round((performance.now() - loadStart) / 1000);
+    if (sec >= SLOW_LOAD_HINT_S) {
+      $("loadingHint").textContent = t("slowHint")(sec) + (isSafari ? " " + t("safariTip") : "");
+      $("loadingHint").classList.remove("hidden");
+    }
+  }, 1000);
+  try {
+    showStep("stepTf");
+    try { await tf.setBackend("webgl"); } catch (e) { /* fall through to cpu */ }
+    await tf.ready();
+    if (tf.getBackend() !== "webgl") { await tf.setBackend("cpu"); await tf.ready(); }
+    showStep("stepCoco");
+    cocoModel = await cocoSsd.load({ base: COCO_BASE });
+    showStep("stepWarm");
+    const warm = document.createElement("canvas"); warm.width = warm.height = 64;
+    await cocoModel.detect(warm);                    // first run compiles the GPU shaders
+  } catch (e) { loadFailed(e); return; }
   if (TM_MODEL_URL.trim()) {
+    showStep("stepTm");
     try {
       if (!window.tmImage) throw new Error("teachablemachine library missing");
       const base = TM_MODEL_URL.trim().replace(/\/?$/, "/");
@@ -365,6 +425,7 @@ async function loadModels() {
       console.error(e); tmModel = null; showError(t("errTm"));
     }
   }
+  clearInterval(slowTimer);
   $("loading").classList.add("hidden");
   ["startBtn", "uploadBtn"].forEach(id => $(id).disabled = false);
   updateModeBadge();
@@ -756,6 +817,7 @@ function applyLang() {
   });
   $("langBtn").textContent = lang === "en" ? "हिंदी" : "English";
   updateModeBadge(); renderCards(); renderPanels(); draw();
+  if (!$("loading").classList.contains("hidden") && !$("spinner").classList.contains("hidden")) showStep();
 }
 $("langBtn").onclick = () => { lang = lang === "en" ? "hi" : "en"; applyLang(); };
 
@@ -768,9 +830,14 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
 function showError(text) { const m = $("msg"); m.textContent = text || ""; m.classList.toggle("show", !!text); }
 function setStatus(text) { $("status").textContent = text || ""; }
 
+// Any unexpected error is shown on the page (not only in the console).
+window.addEventListener("error", e => showError(t("loadFailed") + e.message));
+window.addEventListener("unhandledrejection", e => showError(t("loadFailed") + (e.reason && e.reason.message || e.reason)));
+
 // Start
 applyLang(); renderSaved();
-if (libErrors.length && !window.tf) { showError(t("errLibs")); $("loading").classList.add("hidden"); }
+if (isSafari) showError(t("safariTip"));
+if (libErrors.length && !window.tf) loadFailed(new Error(t("errLibs")));
 else loadModels();
 </script>
 </body>
