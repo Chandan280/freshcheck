@@ -1,0 +1,8 @@
+app/build/
+models/*.pt
+__pycache__/
+*.pyc
+training/out/
+.ipynb_checkpoints/
+.venv/
+.onnxruntime/

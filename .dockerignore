@@ -1,0 +1,5 @@
+app/build
+**/__pycache__
+training
+fundamentals
+docs

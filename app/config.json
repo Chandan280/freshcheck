@@ -1,0 +1,64 @@
+{
+  "_comment": "FreshCheck config. Paths are relative to this file's folder.",
+  "port": 7860,
+  "web_dir": "web",
+  "threads": 0,
+
+  "detector": {
+    "model": "../models/yolov8n.onnx",
+    "input_size": 640,
+    "conf_threshold": 0.4,
+    "nms_iou": 0.45,
+    "max_fruits": 10,
+    "box_padding": 0.08,
+    "coco_classes": { "46": "banana", "47": "apple", "49": "orange" }
+  },
+
+  "classifier": {
+    "model": "../models/resnet18_fresh.onnx",
+    "input_size": 224,
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225],
+    "labels": ["freshapples", "freshbanana", "freshoranges",
+               "rottenapples", "rottenbanana", "rottenoranges"],
+    "fallback_min_confidence": 0.6
+  },
+
+  "grading": {
+    "fresh_below": 0.35,
+    "rotten_above": 0.65
+  },
+
+  "shelf_life": {
+    "_comment": "PROTOTYPE estimate, not measured. days = base * (1 - k + k * (1 - p_rotten))",
+    "base_days": { "Fresh": 5, "Medium": 2, "Rotten": 0 },
+    "confidence_k": 0.3
+  },
+
+  "savings": {
+    "_comment": "Rough Indian retail averages, edit for your market. Saved = logged fruit in these grades.",
+    "saved_grades": ["Fresh", "Medium"],
+    "avg_weight_kg": { "apple": 0.18, "banana": 0.12, "orange": 0.15 },
+    "price_inr_per_kg": { "apple": 160, "banana": 50, "orange": 80 }
+  },
+
+  "actions": {
+    "Fresh": {
+      "color": "green",
+      "en": "Fresh - sell at full price / store",
+      "hi": "ताज़ा - पूरी कीमत पर बेचें / रख लें"
+    },
+    "Medium": {
+      "color": "amber",
+      "en": "Use soon - sell today, discount, cook or donate now",
+      "hi": "जल्दी इस्तेमाल करें - आज बेचें, छूट दें, पकाएँ या अभी दान करें"
+    },
+    "Rotten": {
+      "color": "red",
+      "en": "Rotten - don't sell or donate, compost it",
+      "hi": "सड़ा हुआ - न बेचें, न दान करें, खाद बनाएँ"
+    }
+  },
+
+  "fruit_names_hi": { "apple": "सेब", "banana": "केला", "orange": "संतरा" }
+}

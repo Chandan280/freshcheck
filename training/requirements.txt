@@ -1,0 +1,9 @@
+torch
+torchvision
+ultralytics
+imagehash
+scikit-learn
+matplotlib
+onnx
+onnxruntime
+kagglehub

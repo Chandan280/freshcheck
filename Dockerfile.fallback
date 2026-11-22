@@ -1,0 +1,16 @@
+# SAFETY NET image: Python FastAPI server with the same API + UI. Use only if the C++ image fails.
+#   docker build -f Dockerfile.fallback -t freshcheck-py .  &&  docker run -p 7860:7860 freshcheck-py
+# On Hugging Face: rename this file to "Dockerfile" in the Space.
+FROM python:3.11-slim
+COPY app_fallback/requirements.txt /tmp/req.txt
+RUN pip install --no-cache-dir -r /tmp/req.txt
+COPY app/config.json /app/app/config.json
+COPY app/web /app/app/web
+COPY app_fallback /app/app_fallback
+COPY models /app/models
+RUN useradd -m -u 1000 user || true
+USER 1000
+WORKDIR /app
+ENV PORT=7860
+EXPOSE 7860
+CMD ["python", "app_fallback/server.py"]
