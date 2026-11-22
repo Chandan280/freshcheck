@@ -1,0 +1,777 @@
+<!--
+  1) Open this file in Google Chrome (double-click it, or drag it into a Chrome window). Needs internet the first time it loads.
+  2) Click "Start camera" and allow camera access (or use "Upload photo" if you have no camera).
+  3) Optional: paste your Teachable Machine model link into TM_MODEL_URL at the top of the <script> below (otherwise a colour heuristic is used).
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreshCheck</title>
+<style>
+  /* ---------------- FreshCheck styles (mobile first) ---------------- */
+  :root {
+    --bg: #f5f4ef; --card: #fff; --ink: #1c2420; --muted: #5c6761; --line: #e2e0d8;
+    --brand: #1b7f3b;
+    --green: #1b7f3b; --green-bg: #e6f4ea;
+    --amber: #a86400; --amber-solid: #f0a500; --amber-bg: #fff4d9;
+    --red: #b3261e; --red-bg: #fde8e6;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari", sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 12px 16px 32px; }
+
+  header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .logo { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; }
+  .logo span { color: var(--brand); }
+  .mission { color: var(--muted); font-size: .9rem; }
+
+  button { font: inherit; font-weight: 650; min-height: 48px; padding: 10px 14px; border: 0; border-radius: 12px;
+           background: var(--card); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line); cursor: pointer; }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--brand); color: #fff; box-shadow: none; }
+  button.small { min-height: 40px; padding: 6px 12px; }
+
+  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 5px; margin-bottom: 12px;
+          background: var(--card); border-radius: var(--radius); box-shadow: inset 0 0 0 1px var(--line); }
+  .tabs button { box-shadow: none; background: transparent; min-height: 44px; }
+  .tabs button.on { background: var(--brand); color: #fff; }
+
+  /* Video stage: <video> with a <canvas> overlay on top */
+  .stage { position: relative; background: #111; border-radius: var(--radius); overflow: hidden; min-height: 240px;
+           display: flex; align-items: center; justify-content: center; }
+  .stage video { display: block; width: 100%; height: auto; }
+  .stage canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .stage canvas.photo { position: static; display: block; }
+  .placeholder { color: #d3dad6; text-align: center; padding: 30px 18px; }
+  .placeholder b { display: block; font-size: 2.4rem; }
+  .badge { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: .8rem;
+           padding: 4px 10px; border-radius: 99px; }
+  .badge i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d; margin-right: 6px; }
+  .mode-badge { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,.65); color: #ffe082;
+                font-size: .78rem; padding: 3px 9px; border-radius: 99px; }
+  .hidden { display: none !important; }
+
+  /* Loading spinner */
+  .loading { position: absolute; inset: 0; background: rgba(17,17,17,.88); color: #fff; display: flex;
+             flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 20px; z-index: 5; }
+  .spinner { width: 46px; height: 46px; border: 5px solid rgba(255,255,255,.25); border-top-color: #fff;
+             border-radius: 50%; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .controls .wide { grid-column: 1 / -1; }
+  @media (min-width: 680px) { .controls { grid-template-columns: repeat(5, 1fr); } .controls .wide { grid-column: auto; } }
+  .status { color: var(--muted); font-size: .88rem; min-height: 1.3em; }
+  .msg { display: none; margin: 8px 0; padding: 12px 14px; border-radius: 12px; background: var(--red-bg); color: var(--ink); }
+  .msg.show { display: block; }
+  .whole { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+
+  h2 { font-size: 1.08rem; margin: 18px 0 8px; }
+  .cards { display: grid; gap: 10px; }
+  @media (min-width: 680px) { .cards { grid-template-columns: 1fr 1fr; } }
+  .card { background: var(--card); border-radius: var(--radius); padding: 14px; box-shadow: inset 0 0 0 1px var(--line); }
+  .result { display: grid; grid-template-columns: 54px 1fr; gap: 12px; align-items: center; border-left: 8px solid; }
+  .result .icon { font-size: 2.6rem; text-align: center; line-height: 1; }
+  .result .title { font-weight: 800; font-size: 1.12rem; }
+  .result .action { font-weight: 700; margin: 2px 0 4px; }
+  .result .meta { color: var(--muted); font-size: .88rem; }
+  .green { border-color: var(--green); background: var(--green-bg); } .green .action { color: var(--green); }
+  .amber { border-color: var(--amber-solid); background: var(--amber-bg); } .amber .action { color: var(--amber); }
+  .red { border-color: var(--red); background: var(--red-bg); } .red .action { color: var(--red); }
+  .proto { font-size: .72rem; border: 1px solid currentColor; border-radius: 6px; padding: 0 5px; margin-left: 4px; }
+  .empty { color: var(--muted); font-size: .92rem; }
+
+  ol.list { margin: 0; padding-left: 22px; } ol.list li { margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .saved { display: grid; grid-template-columns: 1fr 1fr; text-align: center; gap: 10px; }
+  .saved .big { font-size: 1.8rem; font-weight: 800; color: var(--brand); }
+  .saved small { color: var(--muted); }
+  footer { margin-top: 26px; text-align: center; color: var(--muted); font-size: .88rem; }
+  footer b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="logo">Fresh<span>Check</span></div>
+      <div class="mission" data-i18n="mission">Less food wasted by vendors, homes and food banks.</div>
+    </div>
+    <button class="small" id="langBtn">हिंदी</button>
+  </header>
+
+  <div class="tabs">
+    <button data-mode="vendor" class="on" data-i18n="tabVendor">🛒 Vendor</button>
+    <button data-mode="home" data-i18n="tabHome">🏠 Home</button>
+    <button data-mode="bank" data-i18n="tabBank">🤝 Food bank</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="placeholder" id="placeholder"><b>📷</b><span data-i18n="placeholder">Start the camera or upload a photo of apples, bananas or oranges.</span></div>
+    <video id="video" class="hidden" playsinline muted autoplay></video>
+    <canvas id="overlay" class="hidden"></canvas>
+    <div class="badge hidden" id="fpsBadge"><i></i><span id="fpsText">LIVE</span></div>
+    <div class="mode-badge hidden" id="modeBadge"></div>
+    <div class="loading" id="loading"><div class="spinner"></div><div data-i18n="loadingModels">Loading AI models…</div></div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="startBtn" disabled data-i18n="start">▶ Start camera</button>
+    <button id="stopBtn" disabled data-i18n="stop">■ Stop</button>
+    <button id="switchBtn" disabled data-i18n="switch">🔄 Switch camera</button>
+    <button id="uploadBtn" disabled data-i18n="upload">🖼 Upload photo</button>
+    <button id="snapBtn" class="wide" disabled data-i18n="snap">📸 Snapshot</button>
+    <input type="file" id="fileInput" accept="image/*" class="hidden">
+  </div>
+  <div class="status" id="status"></div>
+  <div class="msg" id="msg"></div>
+  <div class="whole hidden" id="wholeBox">
+    <span data-i18n="wholeAsk">No fruit box found. Grade the whole photo as:</span>
+    <button class="small" data-whole="apple">🍎</button>
+    <button class="small" data-whole="banana">🍌</button>
+    <button class="small" data-whole="orange">🍊</button>
+  </div>
+
+  <h2 data-i18n="nowSeeing">Now seeing</h2>
+  <div class="cards" id="cards"></div>
+
+  <!-- Mode panels -->
+  <section id="panel-vendor">
+    <h2 data-i18n="vendorTitle">Sell-first list</h2>
+    <div class="card" id="vendorList"></div>
+  </section>
+  <section id="panel-home" class="hidden">
+    <h2 data-i18n="homeTitle">Use it in time</h2>
+    <div class="card" id="homeList"></div>
+  </section>
+  <section id="panel-bank" class="hidden">
+    <h2 data-i18n="bankTitle">Food bank tally</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th data-i18n="decision">Decision</th><th class="num" data-i18n="count">Count</th><th class="num">%</th></tr></thead>
+        <tbody id="bankBody"></tbody>
+      </table>
+      <div class="row">
+        <button class="primary" id="countBtn" data-i18n="countScan">➕ Count this scan</button>
+        <button id="csvBtn" data-i18n="csv">⬇ Export CSV</button>
+      </div>
+    </div>
+  </section>
+
+  <h2 data-i18n="savedTitle">Food saved this session</h2>
+  <div class="card">
+    <div class="saved">
+      <div><div class="big" id="kgSaved">0.00 kg</div><small data-i18n="kgLabel">fruit kept in use</small></div>
+      <div><div class="big" id="inrSaved">₹0</div><small data-i18n="inrLabel">estimated value</small></div>
+    </div>
+    <p class="empty" data-i18n="savedNote">Counted when a green or amber fruit is logged (Snapshot or Count this scan). Average weight and price per kg are estimates.</p>
+    <div class="row"><button class="small" id="resetBtn" data-i18n="reset">↺ Reset session</button></div>
+  </div>
+
+  <footer>
+    <p><b data-i18n="disclaimer">Decision support only, not a food-safety certificate. When in doubt, throw it out.</b></p>
+    <p data-i18n="protoNote">Shelf-life is a prototype estimate.</p>
+  </footer>
+</div>
+
+<!-- Libraries from the jsDelivr CDN (needs internet). onerror marks a failed load. -->
+<script>window.libErrors = [];</script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js" onerror="libErrors.push('tfjs')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js" onerror="libErrors.push('coco-ssd')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js" onerror="libErrors.push('teachablemachine')"></script>
+
+<script>
+// =====================================================================
+//  SETTINGS - edit these
+// =====================================================================
+
+// Teachable Machine model link (Image project, classes "Fresh" and "Rotten").
+// Example: "https://teachablemachine.withgoogle.com/models/AbCdEf123/"
+// Leave empty "" to use the colour heuristic (demo mode).
+const TM_MODEL_URL = "";
+
+// Detection (COCO-SSD)
+const COCO_BASE = "mobilenet_v2";       // "lite_mobilenet_v2" = faster, "mobilenet_v2" = more accurate
+const DETECT_MIN_SCORE = 0.5;            // keep detections above this score
+const FRUIT_CLASSES = ["apple", "banana", "orange"];
+const DETECT_EVERY_MS = 500;             // run detection about every 500 ms
+const SMOOTH_FRAMES = 3;                 // average freshness over the last 3 frames
+
+// Grading: p_rotten < FRESH_BELOW = Fresh, > ROTTEN_ABOVE = Rotten, else Medium
+const FRESH_BELOW = 0.35;
+const ROTTEN_ABOVE = 0.65;
+
+// Shelf-life, PROTOTYPE estimate (days)
+const SHELF_DAYS = { Fresh: 5, Medium: 2, Rotten: 0 };
+
+// Vendor discount suggestion for AMBER fruit (percent, from least to most at-risk)
+const DISCOUNT_MIN = 20, DISCOUNT_MAX = 30;
+
+// Food saved: average weight per fruit (kg) and price (₹ per kg)
+const FRUIT_INFO = {
+  apple:  { kg: 0.18, inrPerKg: 150 },
+  banana: { kg: 0.12, inrPerKg: 60 },
+  orange: { kg: 0.20, inrPerKg: 100 },
+};
+
+// Colour heuristic (demo mode). HSV with H in degrees 0-360, S and V in 0-1.
+// A pixel is "bad" if it is dark (V < darkV), brown (H in brownH, S >= brownSMin, V <= brownVMax)
+// or mould-coloured (H in moldH, S >= moldSMin, V <= 0.85). p_rotten = (bad pixels / fruit pixels) / fullRotten, capped at 1.
+const HEURISTIC = {
+  banana: { darkV: 0.25, brownH: [10, 45], brownSMin: 0.25, brownVMax: 0.55, moldH: null,       moldSMin: 0,    fullRotten: 0.45 },
+  apple:  { darkV: 0.15, brownH: [15, 40], brownSMin: 0.30, brownVMax: 0.50, moldH: null,       moldSMin: 0,    fullRotten: 0.25 },
+  orange: { darkV: 0.22, brownH: [12, 38], brownSMin: 0.30, brownVMax: 0.45, moldH: [140, 220], moldSMin: 0.25, fullRotten: 0.25 },
+};
+
+// =====================================================================
+//  TEXT (English / Hindi)
+// =====================================================================
+const T = {
+  en: {
+    mission: "Less food wasted by vendors, homes and food banks.",
+    tabVendor: "🛒 Vendor", tabHome: "🏠 Home", tabBank: "🤝 Food bank",
+    placeholder: "Start the camera or upload a photo of apples, bananas or oranges.",
+    loadingModels: "Loading AI models…", start: "▶ Start camera", stop: "■ Stop", switch: "🔄 Switch camera",
+    upload: "🖼 Upload photo", snap: "📸 Snapshot", nowSeeing: "Now seeing",
+    vendorTitle: "Sell-first list", homeTitle: "Use it in time", bankTitle: "Food bank tally",
+    decision: "Decision", count: "Count", countScan: "➕ Count this scan", csv: "⬇ Export CSV",
+    savedTitle: "Food saved this session", kgLabel: "fruit kept in use", inrLabel: "estimated value",
+    savedNote: "Counted when a green or amber fruit is logged (Snapshot or Count this scan). Average weight and price per kg are estimates.",
+    reset: "↺ Reset session",
+    disclaimer: "Decision support only, not a food-safety certificate. When in doubt, throw it out.",
+    protoNote: "Shelf-life is a prototype estimate.",
+    wholeAsk: "No fruit box found. Grade the whole photo as:",
+    noResult: "Nothing scanned yet.",
+    noFruitLive: "No apple, banana or orange seen. Hold the fruit 30-60 cm from the camera in good light.",
+    apple: "Apple", banana: "Banana", orange: "Orange",
+    Fresh: "Fresh", Medium: "Use soon", Rotten: "Rotten",
+    act_Fresh: "Fresh - sell at full price / store",
+    act_Medium: "Use soon - sell today, discount, cook or donate now",
+    act_Rotten: "Rotten - don't sell or donate, compost it",
+    useWithin: d => `Use within ~${d} day${d === 1 ? "" : "s"}`, compostNow: "Compost now",
+    proto: "Prototype estimate", confidence: "confidence",
+    demoMode: "Demo mode: colour heuristic", tmMode: "Model: Teachable Machine",
+    nothingLogged: "Nothing logged yet. Scan fruit, then press 📸 Snapshot or ➕ Count this scan.",
+    discount: p => `sell today at ${p}% off`, fullPrice: "full price", removeStall: "remove from stall, compost",
+    cook: { banana: "🥤 make a banana shake", apple: "🍲 make stewed apple", orange: "🧃 squeeze fresh juice" },
+    storeOk: "store normally", throwOut: "throw out / compost",
+    distNow: "✅ Distribute now", distToday: "🟡 Distribute today", reject: "🔴 Reject", total: "Total",
+    logged: n => `Logged ${n} fruit.`, nothingToLog: "No fruit in the current scan to log.",
+    errLibs: "Could not load the AI libraries. Check your internet connection and reload the page.",
+    errModel: "Could not load the detection model. Check your internet connection and reload.",
+    errTm: "Teachable Machine model did not load (check TM_MODEL_URL). Using the colour heuristic instead.",
+    errInsecure: "The camera is blocked on this page. Open the file in Google Chrome, or use Upload photo.",
+    errNoCam: "This browser has no camera access. Use Upload photo.",
+    errDenied: "Camera permission was denied. Click the camera icon in Chrome's address bar, allow the camera, then press Start camera again. Or use Upload photo.",
+    errNotFound: "No camera found. Use Upload photo.",
+    errOther: "Could not start the camera: ",
+    fps: "FPS", live: "LIVE",
+  },
+  hi: {
+    mission: "विक्रेताओं, घरों और फ़ूड बैंकों में कम खाना बर्बाद हो।",
+    tabVendor: "🛒 विक्रेता", tabHome: "🏠 घर", tabBank: "🤝 फ़ूड बैंक",
+    placeholder: "कैमरा चालू करें या सेब, केले या संतरे की फ़ोटो अपलोड करें।",
+    loadingModels: "AI मॉडल लोड हो रहे हैं…", start: "▶ कैमरा चालू", stop: "■ बंद करें", switch: "🔄 कैमरा बदलें",
+    upload: "🖼 फ़ोटो अपलोड", snap: "📸 स्नैपशॉट", nowSeeing: "अभी दिख रहा है",
+    vendorTitle: "पहले बेचें सूची", homeTitle: "समय पर इस्तेमाल करें", bankTitle: "फ़ूड बैंक गिनती",
+    decision: "फ़ैसला", count: "संख्या", countScan: "➕ यह स्कैन गिनें", csv: "⬇ CSV डाउनलोड",
+    savedTitle: "इस सत्र में बचाया गया भोजन", kgLabel: "इस्तेमाल में रखे फल", inrLabel: "अनुमानित मूल्य",
+    savedNote: "हरा या पीला फल दर्ज करने पर गिना जाता है (स्नैपशॉट या यह स्कैन गिनें)। औसत वज़न और प्रति किलो कीमत अनुमान हैं।",
+    reset: "↺ सत्र रीसेट",
+    disclaimer: "यह केवल निर्णय में मदद है, खाद्य-सुरक्षा प्रमाणपत्र नहीं। शक हो तो फेंक दें।",
+    protoNote: "शेल्फ़-लाइफ़ एक प्रोटोटाइप अनुमान है।",
+    wholeAsk: "फल का बॉक्स नहीं मिला। पूरी फ़ोटो को इस फल के रूप में जाँचें:",
+    noResult: "अभी कुछ स्कैन नहीं हुआ।",
+    noFruitLive: "सेब, केला या संतरा नहीं दिखा। फल को अच्छी रोशनी में कैमरे से 30-60 सेमी दूर रखें।",
+    apple: "सेब", banana: "केला", orange: "संतरा",
+    Fresh: "ताज़ा", Medium: "जल्दी इस्तेमाल करें", Rotten: "सड़ा हुआ",
+    act_Fresh: "ताज़ा - पूरी कीमत पर बेचें / रख लें",
+    act_Medium: "जल्दी इस्तेमाल करें - आज बेचें, छूट दें, पकाएँ या अभी दान करें",
+    act_Rotten: "सड़ा हुआ - न बेचें, न दान करें, खाद बनाएँ",
+    useWithin: d => `लगभग ${d} दिन में इस्तेमाल करें`, compostNow: "अभी खाद बनाएँ",
+    proto: "प्रोटोटाइप अनुमान", confidence: "भरोसा",
+    demoMode: "डेमो मोड: रंग अनुमान", tmMode: "मॉडल: Teachable Machine",
+    nothingLogged: "अभी कुछ दर्ज नहीं। फल स्कैन करें, फिर 📸 स्नैपशॉट या ➕ यह स्कैन गिनें दबाएँ।",
+    discount: p => `आज ${p}% छूट पर बेचें`, fullPrice: "पूरी कीमत", removeStall: "ठेले से हटाएँ, खाद बनाएँ",
+    cook: { banana: "🥤 बनाना शेक बनाएँ", apple: "🍲 सेब पकाकर (स्ट्यू) खाएँ", orange: "🧃 ताज़ा जूस निकालें" },
+    storeOk: "सामान्य रूप से रखें", throwOut: "फेंकें / खाद बनाएँ",
+    distNow: "✅ अभी बाँटें", distToday: "🟡 आज ही बाँटें", reject: "🔴 अस्वीकार", total: "कुल",
+    logged: n => `${n} फल दर्ज किए।`, nothingToLog: "इस स्कैन में दर्ज करने को कोई फल नहीं।",
+    errLibs: "AI लाइब्रेरी लोड नहीं हुई। इंटरनेट कनेक्शन जाँचें और पेज फिर से खोलें।",
+    errModel: "डिटेक्शन मॉडल लोड नहीं हुआ। इंटरनेट जाँचें और पेज फिर से खोलें।",
+    errTm: "Teachable Machine मॉडल लोड नहीं हुआ (TM_MODEL_URL जाँचें)। रंग अनुमान इस्तेमाल हो रहा है।",
+    errInsecure: "इस पेज पर कैमरा बंद है। फ़ाइल Google Chrome में खोलें, या फ़ोटो अपलोड करें।",
+    errNoCam: "इस ब्राउज़र में कैमरा उपलब्ध नहीं। फ़ोटो अपलोड करें।",
+    errDenied: "कैमरे की अनुमति नहीं मिली। Chrome के एड्रेस बार में कैमरा आइकन दबाकर अनुमति दें, फिर कैमरा चालू करें। या फ़ोटो अपलोड करें।",
+    errNotFound: "कैमरा नहीं मिला। फ़ोटो अपलोड करें।",
+    errOther: "कैमरा शुरू नहीं हो सका: ",
+    fps: "FPS", live: "लाइव",
+  },
+};
+const ICON = { Fresh: "✅", Medium: "🟡", Rotten: "🔴" };
+const COLOR_CLASS = { Fresh: "green", Medium: "amber", Rotten: "red" };
+const BOX_COLOR = { Fresh: "#1b7f3b", Medium: "#f0a500", Rotten: "#c62828" };
+const FRUIT_ICON = { apple: "🍎", banana: "🍌", orange: "🍊" };
+
+// =====================================================================
+//  STATE (plain JS variables, nothing stored in the browser)
+// =====================================================================
+let lang = "en", mode = "vendor";
+let cocoModel = null, tmModel = null;  // loaded models (tmModel null = heuristic mode)
+let stream = null, facing = "environment", loopTimer = null, running = false;
+let photo = null;                      // uploaded photo (HTMLImageElement) when not using the camera
+let tracks = [], nextTrackId = 1;      // fruit tracked across frames (for smoothing)
+let current = [];                      // fruits in the latest scan (graded)
+let cycleTimes = [];                   // start times of recent detection cycles (for FPS)
+let logItems = [];                     // logged fruit: {time, name, grade, p_rotten, confidence, days, method}
+let savedKg = 0, savedInr = 0;
+
+const $ = id => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const cropCanvas = document.createElement("canvas");  // 224x224 crop for the classifier
+cropCanvas.width = cropCanvas.height = 224;
+const smallCanvas = document.createElement("canvas"); // 64x64 crop for the colour heuristic
+smallCanvas.width = smallCanvas.height = 64;
+const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
+const smallCtx = smallCanvas.getContext("2d", { willReadFrequently: true });
+
+const t = k => T[lang][k];
+const fruitName = n => t(n) || n;
+
+// =====================================================================
+//  MODEL LOADING
+// =====================================================================
+async function loadModels() {
+  if (!window.tf || !window.cocoSsd) { showError(t("errLibs")); $("loading").classList.add("hidden"); return; }
+  try {
+    cocoModel = await cocoSsd.load({ base: COCO_BASE });
+  } catch (e) {
+    console.error(e); showError(t("errModel")); $("loading").classList.add("hidden"); return;
+  }
+  if (TM_MODEL_URL.trim()) {
+    try {
+      if (!window.tmImage) throw new Error("teachablemachine library missing");
+      const base = TM_MODEL_URL.trim().replace(/\/?$/, "/");
+      tmModel = await tmImage.load(base + "model.json", base + "metadata.json");
+    } catch (e) {
+      console.error(e); tmModel = null; showError(t("errTm"));
+    }
+  }
+  $("loading").classList.add("hidden");
+  ["startBtn", "uploadBtn"].forEach(id => $(id).disabled = false);
+  updateModeBadge();
+}
+
+function updateModeBadge() {
+  const b = $("modeBadge");
+  b.textContent = tmModel ? t("tmMode") : t("demoMode");
+  b.style.color = tmModel ? "#b9f6ca" : "#ffe082";
+}
+
+// =====================================================================
+//  FRESHNESS: Teachable Machine or colour heuristic -> p_rotten (0..1)
+// =====================================================================
+
+// RGB (0-255) -> HSV (H 0-360, S 0-1, V 0-1)
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return [h, max ? d / max : 0, max];
+}
+
+// % of brown/dark/mould pixels in the central ellipse of the crop (ignores bright grey/white background).
+function heuristicRotten(name) {
+  const cfg = HEURISTIC[name] || HEURISTIC.apple;
+  const N = smallCanvas.width, data = smallCtx.getImageData(0, 0, N, N).data;
+  let fruit = 0, bad = 0;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = (x + 0.5) / N - 0.5, dy = (y + 0.5) / N - 0.5;
+      if (dx * dx / 0.18 + dy * dy / 0.18 > 1) continue;          // outside central ellipse
+      const i = (y * N + x) * 4;
+      const [h, s, v] = rgbToHsv(data[i], data[i + 1], data[i + 2]);
+      if (s < 0.25 && v > 0.8) continue;                           // pale / white / grey background
+      fruit++;
+      const dark = v < cfg.darkV;
+      const brown = h >= cfg.brownH[0] && h <= cfg.brownH[1] && s >= cfg.brownSMin && v <= cfg.brownVMax;
+      const mould = cfg.moldH && h >= cfg.moldH[0] && h <= cfg.moldH[1] && s >= cfg.moldSMin && v <= 0.85;
+      if (dark || brown || mould) bad++;
+    }
+  }
+  if (fruit < 20) return 0.5;                                      // too little fruit visible: unsure
+  return Math.min(1, (bad / fruit) / cfg.fullRotten);
+}
+
+// Crops a box from the source and returns { p_rotten, method }.
+async function freshness(source, box, name) {
+  const [x, y, w, h] = box;
+  if (tmModel) {
+    cropCtx.drawImage(source, x, y, w, h, 0, 0, 224, 224);
+    const preds = await tmModel.predict(cropCanvas);
+    // Sum every class whose name contains "rotten" (works for "Rotten", "Rotten apple", ...)
+    const p = preds.filter(c => /rotten/i.test(c.className)).reduce((s, c) => s + c.probability, 0);
+    return { p_rotten: p, method: "teachable-machine" };
+  }
+  smallCtx.drawImage(source, x, y, w, h, 0, 0, smallCanvas.width, smallCanvas.height);
+  return { p_rotten: heuristicRotten(name), method: "colour-heuristic" };
+}
+
+// p_rotten -> grade, action, shelf-life
+function grade(p) {
+  const g = p < FRESH_BELOW ? "Fresh" : p > ROTTEN_ABOVE ? "Rotten" : "Medium";
+  return { grade: g, confidence: Math.max(p, 1 - p), days: SHELF_DAYS[g] };
+}
+
+// =====================================================================
+//  DETECTION + SMOOTHING
+// =====================================================================
+function iou(a, b) {
+  const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]);
+  const x2 = Math.min(a[0] + a[2], b[0] + b[2]), y2 = Math.min(a[1] + a[3], b[1] + b[3]);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  return inter / (a[2] * a[3] + b[2] * b[3] - inter || 1);
+}
+
+// Matches new detections to existing tracks (by box overlap) and keeps the last SMOOTH_FRAMES results.
+function smooth(dets) {
+  const used = new Set();
+  for (const d of dets) {
+    let best = null, bestIou = 0.3;
+    for (const tr of tracks) {
+      if (used.has(tr)) continue;
+      const o = iou(d.box, tr.box);
+      if (o > bestIou) { best = tr; bestIou = o; }
+    }
+    if (!best) { best = { id: nextTrackId++, hist: [] }; tracks.push(best); }
+    used.add(best);
+    best.box = d.box; best.missed = 0; best.score = d.score; best.method = d.method;
+    best.hist.push({ name: d.name, p: d.p_rotten });
+    if (best.hist.length > SMOOTH_FRAMES) best.hist.shift();
+  }
+  tracks.forEach(tr => { if (!used.has(tr)) tr.missed++; });
+  tracks = tracks.filter(tr => tr.missed <= 1);          // forget fruit not seen for 2 cycles
+  return tracks.filter(tr => tr.missed === 0).map(tr => {
+    const votes = {};
+    tr.hist.forEach(h => votes[h.name] = (votes[h.name] || 0) + 1);
+    const name = Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0];  // most frequent label
+    const p = tr.hist.reduce((s, h) => s + h.p, 0) / tr.hist.length;         // average p_rotten
+    return { name, box: tr.box, score: tr.score, p_rotten: p, method: tr.method };
+  });
+}
+
+// Runs COCO-SSD + freshness on a video frame or photo; updates `current`.
+async function scan(source, useSmoothing) {
+  const preds = await cocoModel.detect(source, 20, DETECT_MIN_SCORE);
+  const fruits = preds.filter(p => FRUIT_CLASSES.includes(p.class) && p.score > DETECT_MIN_SCORE);
+  const dets = [];
+  for (const f of fruits) {
+    const fr = await freshness(source, f.bbox, f.class);
+    dets.push({ name: f.class, box: f.bbox, score: f.score, ...fr });
+  }
+  const list = useSmoothing ? smooth(dets) : dets;
+  current = list.map(d => ({ ...d, ...grade(d.p_rotten) }));
+}
+
+// Live loop: one detection about every DETECT_EVERY_MS.
+async function liveLoop() {
+  if (!running) return;
+  const t0 = performance.now();
+  try {
+    if (video.readyState >= 2) {
+      await scan(video, true);
+      cycleTimes.push(t0); if (cycleTimes.length > 6) cycleTimes.shift();
+      draw(); renderCards(); updateFps(performance.now() - t0);
+      setStatus(current.length ? "" : t("noFruitLive"));
+    }
+  } catch (e) { console.error(e); }
+  if (running) loopTimer = setTimeout(liveLoop, Math.max(0, DETECT_EVERY_MS - (performance.now() - t0)));
+}
+
+function updateFps(ms) {
+  if (cycleTimes.length < 2) return;
+  const fps = (cycleTimes.length - 1) * 1000 / (cycleTimes[cycleTimes.length - 1] - cycleTimes[0]);
+  $("fpsText").textContent = `${t("live")} · ${fps.toFixed(1)} ${t("fps")} · ${Math.round(ms)} ms`;
+}
+
+// =====================================================================
+//  CAMERA
+// =====================================================================
+async function startCamera() {
+  showError("");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showError(window.isSecureContext === false ? t("errInsecure") : t("errNoCam")); return;
+  }
+  stopCamera(true);
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  } catch (e) {
+    if (e.name === "NotAllowedError" || e.name === "SecurityError") showError(t("errDenied"));
+    else if (e.name === "NotFoundError" || e.name === "OverconstrainedError") showError(t("errNotFound"));
+    else showError(t("errOther") + e.message);
+    return;
+  }
+  photo = null; tracks = []; current = [];
+  $("wholeBox").classList.add("hidden");
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  $("placeholder").classList.add("hidden");
+  video.classList.remove("hidden");
+  overlay.classList.remove("hidden"); overlay.classList.remove("photo");
+  $("fpsBadge").classList.remove("hidden"); $("modeBadge").classList.remove("hidden");
+  $("fpsText").textContent = t("live");
+  ["stopBtn", "switchBtn", "snapBtn"].forEach(id => $(id).disabled = false);
+  running = true; liveLoop();
+}
+
+// keepView = true when restarting (switch camera) so the screen does not flash empty.
+function stopCamera(keepView) {
+  running = false;
+  clearTimeout(loopTimer);
+  if (stream) stream.getTracks().forEach(tr => tr.stop());
+  stream = null; video.srcObject = null;
+  $("fpsBadge").classList.add("hidden");
+  ["stopBtn", "switchBtn"].forEach(id => $(id).disabled = true);
+  if (!keepView && !photo) {
+    video.classList.add("hidden"); overlay.classList.add("hidden");
+    $("modeBadge").classList.add("hidden"); $("placeholder").classList.remove("hidden");
+    $("snapBtn").disabled = true;
+    current = []; renderCards(); setStatus("");
+  }
+}
+
+$("startBtn").onclick = startCamera;
+$("stopBtn").onclick = () => stopCamera(false);
+$("switchBtn").onclick = () => { facing = facing === "environment" ? "user" : "environment"; startCamera(); };
+
+// =====================================================================
+//  PHOTO UPLOAD (works without a camera)
+// =====================================================================
+$("uploadBtn").onclick = () => $("fileInput").click();
+$("fileInput").onchange = e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const reader = new FileReader();   // data URL keeps the canvas readable on file:// pages
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = async () => {
+      stopCamera(true);
+      photo = img; tracks = [];
+      video.classList.add("hidden"); $("placeholder").classList.add("hidden");
+      overlay.classList.remove("hidden"); overlay.classList.add("photo");
+      $("modeBadge").classList.remove("hidden");
+      $("snapBtn").disabled = false;
+      showError("");
+      await scan(img, false);
+      draw(); renderCards();
+      $("wholeBox").classList.toggle("hidden", current.length > 0);
+      setStatus("");
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+};
+
+// No box found in the photo: grade the whole photo as the fruit the user picks.
+document.querySelectorAll("[data-whole]").forEach(b => b.onclick = async () => {
+  if (!photo) return;
+  const name = b.dataset.whole, box = [0, 0, photo.naturalWidth, photo.naturalHeight];
+  const fr = await freshness(photo, box, name);
+  current = [{ name, box, score: 0, whole: true, ...fr, ...grade(fr.p_rotten) }];
+  $("wholeBox").classList.add("hidden");
+  draw(); renderCards();
+});
+
+// =====================================================================
+//  DRAWING
+// =====================================================================
+function draw() {
+  const w = photo ? photo.naturalWidth : video.videoWidth, h = photo ? photo.naturalHeight : video.videoHeight;
+  if (!w || !h || overlay.classList.contains("hidden")) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cw = $("stage").clientWidth, ch = Math.round(cw * h / w);
+  overlay.width = cw * dpr; overlay.height = ch * dpr;
+  overlay.style.width = cw + "px"; overlay.style.height = ch + "px";
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  octx.clearRect(0, 0, cw, ch);
+  if (photo) octx.drawImage(photo, 0, 0, cw, ch);
+  drawBoxes(octx, cw / w);
+}
+
+// Draws the fruit boxes + labels; s = scale from source pixels to canvas pixels.
+function drawBoxes(ctx, s) {
+  for (const f of current) {
+    const [x, y, bw, bh] = f.box.map(v => v * s), col = BOX_COLOR[f.grade];
+    ctx.lineWidth = 4; ctx.strokeStyle = col;
+    ctx.setLineDash(f.whole ? [10, 8] : []);
+    ctx.strokeRect(x + 2, y + 2, bw - 4, bh - 4);
+    ctx.setLineDash([]);
+    const label = `${ICON[f.grade]} ${fruitName(f.name)} · ${t(f.grade)} ${Math.round(f.confidence * 100)}%`;
+    ctx.font = "bold 16px system-ui, sans-serif";
+    const tw = ctx.measureText(label).width + 14, ly = y >= 28 ? y - 28 : y + 2;
+    ctx.fillStyle = col; ctx.fillRect(x, ly, tw, 26);
+    ctx.fillStyle = f.grade === "Medium" ? "#1d1d1d" : "#fff";
+    ctx.fillText(label, x + 7, ly + 18);
+  }
+}
+window.addEventListener("resize", draw);
+
+// =====================================================================
+//  RESULT CARDS
+// =====================================================================
+function daysText(f) { return f.grade === "Rotten" ? t("compostNow") : t("useWithin")(f.days); }
+
+function renderCards() {
+  const box = $("cards");
+  if (!current.length) { box.innerHTML = `<div class="empty">${t("noResult")}</div>`; return; }
+  box.innerHTML = current.map(f => `
+    <div class="card result ${COLOR_CLASS[f.grade]}">
+      <div class="icon">${ICON[f.grade]}</div>
+      <div>
+        <div class="title">${FRUIT_ICON[f.name]} ${fruitName(f.name)} · ${t(f.grade)}</div>
+        <div class="action">${t("act_" + f.grade)}</div>
+        <div class="meta">${daysText(f)} <span class="proto">${t("proto")}</span><br>
+          ${t("confidence")} ${Math.round(f.confidence * 100)}%</div>
+      </div>
+    </div>`).join("");
+}
+
+// =====================================================================
+//  LOGGING, SNAPSHOT, MODE PANELS, CSV
+// =====================================================================
+// Adds the fruit of the current scan to the session log (+ food saved for green/amber).
+function logCurrent() {
+  if (!current.length) { setStatus(t("nothingToLog")); return 0; }
+  const time = new Date().toISOString();
+  for (const f of current) {
+    logItems.push({ time, name: f.name, grade: f.grade, p_rotten: f.p_rotten, confidence: f.confidence,
+                    days: f.days, method: f.method });
+    if (f.grade !== "Rotten") {
+      const info = FRUIT_INFO[f.name];
+      savedKg += info.kg; savedInr += info.kg * info.inrPerKg;
+    }
+  }
+  setStatus(t("logged")(current.length));
+  renderPanels(); renderSaved();
+  return current.length;
+}
+
+// Snapshot: log the fruit and download the annotated picture.
+$("snapBtn").onclick = () => {
+  const src = photo || video;
+  const w = photo ? photo.naturalWidth : video.videoWidth, h = photo ? photo.naturalHeight : video.videoHeight;
+  if (!w) return;
+  logCurrent();
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(src, 0, 0, w, h);
+  drawBoxes(ctx, 1);
+  c.toBlob(blob => download(blob, "freshcheck-snapshot-" + stamp() + ".png"), "image/png");
+};
+$("countBtn").onclick = logCurrent;
+
+function stamp() { return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-"); }
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// Discount for AMBER: DISCOUNT_MIN% at the fresh edge, DISCOUNT_MAX% at the rotten edge, in steps of 5.
+function discount(p) {
+  const k = Math.min(1, Math.max(0, (p - FRESH_BELOW) / (ROTTEN_ABOVE - FRESH_BELOW)));
+  return Math.round((DISCOUNT_MIN + k * (DISCOUNT_MAX - DISCOUNT_MIN)) / 5) * 5;
+}
+const SELL_ORDER = { Medium: 0, Fresh: 1, Rotten: 2 };
+
+function renderPanels() {
+  const empty = `<div class="empty">${t("nothingLogged")}</div>`;
+  const line = f => `${ICON[f.grade]} ${FRUIT_ICON[f.name]} <b>${fruitName(f.name)}</b> · ${t(f.grade)}`;
+
+  // Vendor: AMBER first (most at-risk first), then FRESH, then RED (remove from stall).
+  const v = [...logItems].sort((a, b) => SELL_ORDER[a.grade] - SELL_ORDER[b.grade] || b.p_rotten - a.p_rotten);
+  $("vendorList").innerHTML = v.length ? "<ol class='list'>" + v.map(f => `<li>${line(f)} — ${
+    f.grade === "Medium" ? t("discount")(discount(f.p_rotten)) :
+    f.grade === "Fresh" ? t("fullPrice") : t("removeStall")}</li>`).join("") + "</ol>" : empty;
+
+  // Home: use-within days, cook-it-now idea for AMBER.
+  const h = [...logItems].sort((a, b) => SELL_ORDER[a.grade] - SELL_ORDER[b.grade] || a.days - b.days);
+  $("homeList").innerHTML = h.length ? "<ol class='list'>" + h.map(f => `<li>${line(f)} — ${
+    f.grade === "Medium" ? t("useWithin")(f.days) + ". " + t("cook")[f.name] :
+    f.grade === "Fresh" ? t("useWithin")(f.days) + ", " + t("storeOk") : t("throwOut")}</li>`).join("") + "</ol>" : empty;
+
+  // Food bank tally.
+  const n = { Fresh: 0, Medium: 0, Rotten: 0 };
+  logItems.forEach(f => n[f.grade]++);
+  const total = logItems.length, pct = c => total ? Math.round(100 * c / total) + "%" : "–";
+  $("bankBody").innerHTML = [["distNow", n.Fresh], ["distToday", n.Medium], ["reject", n.Rotten]]
+    .map(([k, c]) => `<tr><td>${t(k)}</td><td class="num">${c}</td><td class="num">${pct(c)}</td></tr>`).join("")
+    + `<tr><td><b>${t("total")}</b></td><td class="num"><b>${total}</b></td><td></td></tr>`;
+}
+
+function renderSaved() {
+  $("kgSaved").textContent = savedKg.toFixed(2) + " kg";
+  $("inrSaved").textContent = "₹" + Math.round(savedInr).toLocaleString("en-IN");
+}
+
+$("csvBtn").onclick = () => {
+  const decision = { Fresh: "Distribute now", Medium: "Distribute today", Rotten: "Reject" };
+  const rows = [["time", "fruit", "grade", "decision", "confidence", "p_rotten", "use_within_days_prototype", "method"]];
+  logItems.forEach(f => rows.push([f.time, f.name, f.grade, decision[f.grade], f.confidence.toFixed(2),
+                                   f.p_rotten.toFixed(2), f.days, f.method]));
+  download(new Blob([rows.map(r => r.join(",")).join("\n")], { type: "text/csv" }), "freshcheck-tally-" + stamp() + ".csv");
+};
+
+$("resetBtn").onclick = () => {
+  logItems = []; savedKg = 0; savedInr = 0;
+  renderPanels(); renderSaved(); setStatus("");
+};
+
+// =====================================================================
+//  LANGUAGE, MODE TABS, MESSAGES
+// =====================================================================
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const v = t(el.dataset.i18n);
+    if (typeof v === "string") el.textContent = v;
+  });
+  $("langBtn").textContent = lang === "en" ? "हिंदी" : "English";
+  updateModeBadge(); renderCards(); renderPanels(); draw();
+}
+$("langBtn").onclick = () => { lang = lang === "en" ? "hi" : "en"; applyLang(); };
+
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  mode = b.dataset.mode;
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  ["vendor", "home", "bank"].forEach(m => $("panel-" + m).classList.toggle("hidden", m !== mode));
+});
+
+function showError(text) { const m = $("msg"); m.textContent = text || ""; m.classList.toggle("show", !!text); }
+function setStatus(text) { $("status").textContent = text || ""; }
+
+// Start
+applyLang(); renderSaved();
+if (libErrors.length && !window.tf) { showError(t("errLibs")); $("loading").classList.add("hidden"); }
+else loadModels();
+</script>
+</body>
+</html>

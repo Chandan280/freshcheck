@@ -17,6 +17,13 @@ fruit and shows **Fresh / Use soon / Rotten**, a big colour + icon + text action
 
 UPES CSAI3027P Deep Learning, Project 26.
 
+## 🟢 Zero-install version: `freshcheck.html`
+
+Double-click **`freshcheck.html`** → it opens in Chrome → **Start camera**. No server, no Python, no install
+(needs internet for the TensorFlow.js libraries). Detection: COCO-SSD in the browser. Freshness: your
+Teachable Machine model if you paste its link into `TM_MODEL_URL` at the top of the script, otherwise a
+colour heuristic marked "Demo mode".
+
 ## ⚡ Quick start (2 steps)
 
 1. **Get the model once:** open `training/train_classifier.ipynb` in Google Colab (T4 GPU) → *Run all*.
